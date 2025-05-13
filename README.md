@@ -18,7 +18,7 @@
 - 📦 Synology NAS：DS423+
 - 🖥️ DSM 版本：7.2.2-72806
 - 🌐 Web 伺服器：Web Station + Nginx
-- 🐘 PHP 版本：8.0（因 DSM 限制暫不使用 8.2）
+- 🐘 PHP 版本：8.1（因 DSM 限制暫不使用 8.2）
 - 🔗 YOURLS 安裝：使用 HTTPS 子網域  
   ⚠️ 注意：YOURLS 的 `config.php` 中 `YOURLS_SITE` 必須設為 `http://`，否則樣式表將無法載入
 
