@@ -21,20 +21,35 @@ function loadEnvToConstants($filename = 'shorten_and_post.env')
     }
 
     // 3. 依序檢查並載入
+    echo "🔍 開始搜尋設定檔...<br>\n";
     foreach ($paths as $path) {
+        echo "檢查路徑: " . $path . " ... ";
         if (file_exists($path)) {
+            echo "✅ 檔案存在！嘗試載入...<br>\n";
             $lines = file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+            if ($lines === false) {
+                echo "❌ 無法讀取檔案內容 (可能為權限問題)<br>\n";
+                continue;
+            }
+
+            $count = 0;
             foreach ($lines as $line) {
                 $line = trim($line);
                 if ($line === '' || str_starts_with($line, '#') || !str_contains($line, '='))
                     continue;
                 [$key, $value] = explode('=', $line, 2);
-                if (!defined($key))
+                if (!defined($key)) {
                     define(trim($key), trim($value));
+                    $count++;
+                }
             }
+            echo "✅ 成功載入 $count 個變數。<br>\n";
             return; // 找到並載入後結束
+        } else {
+            echo "❌ 找不到檔案<br>\n";
         }
     }
+    echo "⚠️ 也就是說，搜尋了所有路徑都沒有找到 .env 檔。<br>\n";
 }
 loadEnvToConstants();
 
