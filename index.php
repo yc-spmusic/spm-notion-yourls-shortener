@@ -4,26 +4,35 @@ header('Content-Type: text/plain');
 // ✅ 載入 .env 常數
 function loadEnvToConstants($filename = 'shorten_and_post.env')
 {
-    // 往上層目錄尋找 .env 檔案
-    $dir = __DIR__;
-    $path = $dir . '/' . $filename;
+    // 定義搜尋路徑清單
+    $paths = [
+        '/volume1/web_packages/spm_env/' . $filename, // 1. 優先搜尋 NAS 指定路徑
+    ];
 
-    while (!file_exists($path)) {
+    // 2. 加入當前與上層目錄搜尋 (Local 開發用)
+    $dir = __DIR__;
+    while (true) {
+        $paths[] = $dir . '/' . $filename;
         $parent = dirname($dir);
         if ($parent === $dir)
-            return; // 已到根目錄仍未找到
+            break;
         $dir = $parent;
-        $path = $dir . '/' . $filename;
     }
 
-    $lines = file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-    foreach ($lines as $line) {
-        $line = trim($line);
-        if ($line === '' || str_starts_with($line, '#') || !str_contains($line, '='))
-            continue;
-        [$key, $value] = explode('=', $line, 2);
-        if (!defined($key))
-            define(trim($key), trim($value));
+    // 3. 依序檢查並載入
+    foreach ($paths as $path) {
+        if (file_exists($path)) {
+            $lines = file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
+            foreach ($lines as $line) {
+                $line = trim($line);
+                if ($line === '' || str_starts_with($line, '#') || !str_contains($line, '='))
+                    continue;
+                [$key, $value] = explode('=', $line, 2);
+                if (!defined($key))
+                    define(trim($key), trim($value));
+            }
+            return; // 找到並載入後結束
+        }
     }
 }
 loadEnvToConstants();
