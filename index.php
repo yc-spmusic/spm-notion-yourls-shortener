@@ -7,7 +7,7 @@ function loadEnvToConstants($filename = 'shorten_and_post.env')
 {
     // 定義搜尋路徑清單
     $paths = [
-        '/volume1/web_packages/spm_env/' . $filename, // 1. 優先搜尋 NAS 指定路徑
+        '/volume1/web_packages/spm_env/shorten_and_post.env' . $filename, // 1. 優先搜尋 NAS 指定路徑
     ];
 
     // 2. 加入當前與上層目錄搜尋 (Local 開發用)
