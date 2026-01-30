@@ -1,5 +1,6 @@
 <?php
 header('Content-Type: text/plain');
+const APP_VERSION = '1.1.0';
 
 // ✅ 載入 .env 常數
 function loadEnvToConstants($filename = 'shorten_and_post.env')
