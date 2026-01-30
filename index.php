@@ -1,6 +1,6 @@
 <?php
 header('Content-Type: text/plain');
-const APP_VERSION = '1.1.0';
+const APP_VERSION = '1.1.1';
 
 // ✅ 載入 .env 常數
 function loadEnvToConstants($filename = 'shorten_and_post.env')
@@ -21,14 +21,14 @@ function loadEnvToConstants($filename = 'shorten_and_post.env')
     }
 
     // 3. 依序檢查並載入
-    echo "🔍 開始搜尋設定檔...<br>\n";
+    $debugLog = "🔍 開始搜尋設定檔...\\n";
     foreach ($paths as $path) {
-        echo "檢查路徑: " . $path . " ... ";
+        $debugLog .= "檢查路徑: " . $path . " ... ";
         if (file_exists($path)) {
-            echo "✅ 檔案存在！嘗試載入...<br>\n";
+            $debugLog .= "✅ 檔案存在！嘗試載入...\\n";
             $lines = file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
             if ($lines === false) {
-                echo "❌ 無法讀取檔案內容 (可能為權限問題)<br>\n";
+                $debugLog .= "❌ 無法讀取檔案內容 (可能為權限問題)\\n";
                 continue;
             }
 
@@ -43,13 +43,30 @@ function loadEnvToConstants($filename = 'shorten_and_post.env')
                     $count++;
                 }
             }
-            echo "✅ 成功載入 $count 個變數。<br>\n";
+            $debugLog .= "✅ 成功載入 $count 個變數。\\n";
+            sendDebugToDiscord($debugLog);
             return; // 找到並載入後結束
         } else {
-            echo "❌ 找不到檔案<br>\n";
+            $debugLog .= "❌ 找不到檔案\\n";
         }
     }
-    echo "⚠️ 也就是說，搜尋了所有路徑都沒有找到 .env 檔。<br>\n";
+    $debugLog .= "⚠️ 也就是說，搜尋了所有路徑都沒有找到 .env 檔。\\n";
+    sendDebugToDiscord($debugLog);
+}
+
+function sendDebugToDiscord($message)
+{
+    $webhookUrl = "https://discord.com/api/webhooks/1292208560062599222/V-yAnvcfhbPIgNBPW4TRPz6akrT9PVdLF-OThX_SzaJlONvQxqQ0LCBdBDhglHLBTZ7b";
+    $json_data = json_encode(["content" => $message]);
+    $opts = [
+        'http' => [
+            'method' => 'POST',
+            'header' => "Content-Type: application/json\r\n",
+            'content' => $json_data
+        ]
+    ];
+    $context = stream_context_create($opts);
+    @file_get_contents($webhookUrl, false, $context);
 }
 loadEnvToConstants();
 
