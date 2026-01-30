@@ -1,6 +1,6 @@
 <?php
 header('Content-Type: text/plain');
-const APP_VERSION = '1.1.1';
+const APP_VERSION = '1.1.2';
 
 // ✅ 載入 .env 常數
 function loadEnvToConstants($filename = 'shorten_and_post.env')
@@ -21,54 +21,37 @@ function loadEnvToConstants($filename = 'shorten_and_post.env')
     }
 
     // 3. 依序檢查並載入
-    $debugLog = "🔍 開始搜尋設定檔...\\n";
     foreach ($paths as $path) {
-        $debugLog .= "檢查路徑: " . $path . " ... ";
         if (file_exists($path)) {
-            $debugLog .= "✅ 檔案存在！嘗試載入...\\n";
             $lines = file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-            if ($lines === false) {
-                $debugLog .= "❌ 無法讀取檔案內容 (可能為權限問題)\\n";
-                continue;
-            }
+            if ($lines === false)
+                continue; // 無法讀取則跳過
 
-            $count = 0;
             foreach ($lines as $line) {
                 $line = trim($line);
                 if ($line === '' || str_starts_with($line, '#') || !str_contains($line, '='))
                     continue;
                 [$key, $value] = explode('=', $line, 2);
-                if (!defined($key)) {
+                if (!defined($key))
                     define(trim($key), trim($value));
-                    $count++;
-                }
             }
-            $debugLog .= "✅ 成功載入 $count 個變數。\\n";
-            sendDebugToDiscord($debugLog);
             return; // 找到並載入後結束
-        } else {
-            $debugLog .= "❌ 找不到檔案\\n";
         }
     }
-    $debugLog .= "⚠️ 也就是說，搜尋了所有路徑都沒有找到 .env 檔。\\n";
-    sendDebugToDiscord($debugLog);
-}
 
-function sendDebugToDiscord($message)
-{
-    $webhookUrl = "https://discord.com/api/webhooks/1292208560062599222/V-yAnvcfhbPIgNBPW4TRPz6akrT9PVdLF-OThX_SzaJlONvQxqQ0LCBdBDhglHLBTZ7b";
-    $json_data = json_encode(["content" => $message]);
-    $opts = [
-        'http' => [
-            'method' => 'POST',
-            'header' => "Content-Type: application/json\r\n",
-            'content' => $json_data
-        ]
-    ];
-    $context = stream_context_create($opts);
-    @file_get_contents($webhookUrl, false, $context);
+    // 如果執行到這裡代表找不到 .env
+    // 雖然不建議直接 die，但在這支簡單的 API 中，如果沒設定檔通常就是掛了
+    // 為了讓使用者方便除錯，這裡可以選擇是否要要報錯，或靜默失敗
 }
 loadEnvToConstants();
+
+// ✅ 檢查必要常數
+if (!defined('YOURLS_API') || !defined('YOURLS_SIGNATURE') || !defined('NOTION_TOKEN')) {
+    http_response_code(500);
+    echo "❌ 錯誤：無法載入環境變數設定檔 (.env) 或缺少關鍵設定。\n";
+    echo "請確認 /volume1/web_packages/spm_env/shorten_and_post.env 是否存在且有權限讀取。\n";
+    exit;
+}
 
 // ✅ 解析 Notion webhook 的 JSON 輸入
 $raw = file_get_contents('php://input');
