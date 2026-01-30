@@ -1,6 +1,6 @@
 <?php
 header('Content-Type: text/plain; charset=utf-8');
-header('X-Version: 2.0.0');
+header('X-Version: 2.1.0');
 
 /**
  * SPM Notion → YOURLS Webhook (Prefer page_id patch)
@@ -70,71 +70,93 @@ foreach ($required as $c) {
     }
 }
 
-// ────────────────────────────────────────────────────────
-// 解析 Notion webhook payload
-// ────────────────────────────────────────────────────────
+// ✅ 解析 Notion webhook 的 JSON 輸入
 $raw = file_get_contents('php://input');
+writeLog("received-webhook", "Length: " . strlen($raw));
+
 $data = json_decode($raw, true);
 if (json_last_error() !== JSON_ERROR_NONE) {
+    writeLog("error", "JSON Decode Error: " . json_last_error_msg());
     http_response_code(400);
     echo "⚠️ 無效的 JSON：" . json_last_error_msg() . "\n";
     exit;
 }
+
 if (!$data || !isset($data['data']['properties'])) {
+    writeLog("error", "Missing properties in JSON");
     http_response_code(400);
     echo "⚠️ 缺少必要節點：data.properties\n";
     exit;
 }
 
 $props = $data['data']['properties'];
-$page_id = $data['data']['id'] ?? null; // 方案 A：優先使用
+$page_id = $data['data']['id'] ?? null;
+writeLog("info", "Page ID: " . ($page_id ?? "NONE"));
 
 // 取欄位
 $base_url = $props['付款網址']['url'] ?? null;
 $order_id = $props['訂單編號']['rich_text'][0]['text']['content'] ?? null;
 
+writeLog("info", "Extract: OrderID={$order_id}, URL=" . substr($base_url, 0, 30) . "...");
+
 if (!$base_url || !$order_id) {
+    writeLog("error", "Missing OrderID or URL");
     http_response_code(400);
     echo "❌ 缺少必要參數：付款網址 或 訂單編號。\n";
     exit;
 }
 
 // ────────────────────────────────────────────────────────
-// 呼叫 YOURLS 產生短網址（維持舊版流程：urlencode 後 POST）
+// 呼叫 YOURLS 產生短網址
 // ────────────────────────────────────────────────────────
 $encoded_url = urlencode($base_url);
 $y_http = 0;
 $y_body = '';
 $short_url = shortenURL($encoded_url, $order_id, $y_http, $y_body);
+
 if (!$short_url) {
-    http_response_code(502); // 下游（YOURLS）失敗
+    writeLog("error", "YOURLS Failed. HTTP: $y_http, Body: $y_body");
+    http_response_code(502);
     echo "❌ 產生短網址失敗（YOURLS）。\n";
-    echo "HTTP={$y_http}\n";
-    echo "BODY={$y_body}\n";
     exit;
 }
+writeLog("info", "Short URL Generated: $short_url");
 
 // ────────────────────────────────────────────────────────
-// 方案 A：若帶有 page_id，直接 PATCH；否則回退查詢後 PATCH
+// 方案 A：若帶有 page_id，直接 PATCH
 // ────────────────────────────────────────────────────────
 if ($page_id) {
     $p_http = 0;
     $p_body = '';
     $res = notionPatchByPageId($page_id, $short_url, $p_http, $p_body);
-    if ($p_http < 200 || $p_http >= 300) {
+
+    writeLog("patch-status", "HTTP: $p_http");
+    writeLog("patch-response", $p_body);
+
+    // ✅ 改進判斷：如果 HTTP 讀不到但 Body 是成功物件，視為成功
+    $is_success = ($p_http >= 200 && $p_http < 300);
+    $json_res = json_decode($p_body, true);
+    if (isset($json_res['object']) && $json_res['object'] === 'page') {
+        $is_success = true;
+    }
+
+    if (!$is_success) {
         http_response_code(500);
         echo "❌ Notion 更新失敗（直寫 page_id）。\n";
-        echo "PATCH_HTTP={$p_http}\n";
-        echo "PATCH_BODY={$p_body}\n";
         exit;
     }
+
+    // Discord Notification
+    sendToDiscord($order_id, $short_url, "Direct Patch (PageID)", $p_body);
+
     http_response_code(200);
     echo "✅ 短網址產生成功：{$short_url}\n";
-    echo "🔄 Notion 已更新（page_id 直寫）：\n{$res}\n";
+    echo "🔄 Notion 已更新（page_id 直寫）。\n";
     exit;
 }
 
-// 回退：查詢（rich_text.equals → title.equals → rich_text.contains），取第一筆做 PATCH
+// 回退：查詢
+writeLog("info", "Fallback to Query mode");
 $q_http = 0;
 $q_body = '';
 $p_http = 0;
@@ -142,24 +164,66 @@ $p_body = '';
 $result = updateNotionFields($order_id, $short_url, $q_http, $q_body, $p_http, $p_body);
 
 if ($result === '__NOT_FOUND__') {
+    writeLog("error", "Notion Query Not Found. Body: $q_body");
     http_response_code(422);
-    echo "❌ Notion 查無此訂單（order_id={$order_id}）。\n";
-    echo "QUERY_HTTP={$q_http}\n";
-    echo "QUERY_BODY={$q_body}\n";
+    echo "❌ Notion 查無此訂單。\n";
     exit;
 }
 if ($result === '__PATCH_FAIL__') {
+    writeLog("error", "Notion Patch Failed (Fallback). HTTP: $p_http, Body: $p_body");
     http_response_code(500);
-    echo "❌ Notion 更新短網址失敗（回退模式）。\n";
-    echo "PATCH_HTTP={$p_http}\n";
-    echo "PATCH_BODY={$p_body}\n";
+    echo "❌ Notion 更新與網址失敗（回退模式）。\n";
     exit;
 }
 
+writeLog("success", "Update Success (Fallback)");
+
+// Discord Notification
+sendToDiscord($order_id, $short_url, "Fallback Query", $result);
+
 http_response_code(200);
 echo "✅ 短網址產生成功：{$short_url}\n";
-echo "🔄 Notion 已更新（回退查詢）：\n{$result}\n";
 exit;
+
+// ─────────────────────────── Func ───────────────────────────
+function writeLog($type, $msg)
+{
+    $line = "[" . date('Y-m-d H:i:s') . "] [$type] $msg" . PHP_EOL;
+    @file_put_contents(__DIR__ . '/debug_spm.log', $line, FILE_APPEND);
+}
+
+function sendToDiscord($order_id, $short_url, $mode, $notion_response)
+{
+    if (!defined('DISCORD_WEBHOOK_URL') || empty(DISCORD_WEBHOOK_URL)) {
+        return;
+    }
+
+    // Truncate Notion response if too long (Discord limit 2000 chars total)
+    $snippet = mb_substr($notion_response, 0, 1500);
+    if (strlen($notion_response) > 1500)
+        $snippet .= "... (truncated)";
+
+    $content = "✅ **Short URL Created!**\n"
+        . "**Order ID**: `$order_id`\n"
+        . "**Short URL**: $short_url\n"
+        . "**Mode**: $mode\n\n"
+        . "**Notion Response**:\n"
+        . "```json\n" . $snippet . "\n```";
+
+    $data = json_encode(['content' => $content]);
+
+    $ctx = stream_context_create([
+        'http' => [
+            'method' => 'POST',
+            'header' => "Content-Type: application/json\r\n",
+            'content' => $data,
+            'ignore_errors' => true
+        ]
+    ]);
+
+    file_get_contents(DISCORD_WEBHOOK_URL, false, $ctx);
+    writeLog("info", "Sent to Discord");
+}
 
 
 // ─────────────────────────── Functions ───────────────────────────
